@@ -5,18 +5,83 @@
 
 package org.fcitx.fcitx5.android.input
 
+import android.content.Context
+import android.hardware.input.InputManager
+import android.os.Build
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import org.fcitx.fcitx5.android.data.prefs.AppPrefs
 import org.fcitx.fcitx5.android.input.candidates.floating.FloatingCandidatesMode
+import org.fcitx.fcitx5.android.utils.inputManager
 import org.fcitx.fcitx5.android.utils.isTypeNull
 
 class InputDeviceManager(private val onChange: (Boolean) -> Unit) {
 
     private var inputView: InputView? = null
     private var candidatesView: CandidatesView? = null
+    private var inputManager: InputManager? = null
+    private var hasPhysicalKeyboard = false
+
+    private fun isValidPhysicalKeyboard(device: InputDevice?): Boolean {
+        if (device == null) return false
+        return !device.isVirtual &&
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1 || device.isEnabled) &&
+            device.keyboardType == InputDevice.KEYBOARD_TYPE_ALPHABETIC
+    }
+
+    private fun refreshPhysicalKeyboard(): Boolean {
+        val im = inputManager ?: return false
+        val hasPk = im.inputDeviceIds.any { id ->
+            isValidPhysicalKeyboard(im.getInputDevice(id))
+        }
+        val changed = hasPhysicalKeyboard != hasPk
+        hasPhysicalKeyboard = hasPk
+        return changed
+    }
+
+    private fun updateModeOnDeviceChange() {
+        isVirtualKeyboard = when (candidatesViewMode) {
+            FloatingCandidatesMode.Disabled -> true
+            else -> !hasPhysicalKeyboard
+        }
+    }
+
+    private val inputDeviceListener = object : InputManager.InputDeviceListener {
+        override fun onInputDeviceAdded(deviceId: Int) {
+            if (refreshPhysicalKeyboard()) {
+                updateModeOnDeviceChange()
+            }
+        }
+
+        override fun onInputDeviceRemoved(deviceId: Int) {
+            if (refreshPhysicalKeyboard()) {
+                updateModeOnDeviceChange()
+            }
+        }
+
+        override fun onInputDeviceChanged(deviceId: Int) {
+            if (refreshPhysicalKeyboard()) {
+                updateModeOnDeviceChange()
+            }
+        }
+    }
+
+    fun registerInputDeviceListener(context: Context) {
+        val im = context.inputManager
+        inputManager = im
+        im.registerInputDeviceListener(inputDeviceListener, null)
+        if (refreshPhysicalKeyboard()) {
+            updateModeOnDeviceChange()
+        }
+    }
+
+    fun unregisterInputDeviceListener() {
+        inputManager?.unregisterInputDeviceListener(inputDeviceListener)
+        inputManager = null
+    }
 
     private fun setupInputViewEvents(isVirtual: Boolean) {
         val iv = inputView ?: return
@@ -61,7 +126,8 @@ class InputDeviceManager(private val onChange: (Boolean) -> Unit) {
         setupCandidatesViewEvents(this.isVirtualKeyboard)
     }
 
-    private var startedInputView = false
+    var startedInputView = false
+        private set
     private var isNullInputType = true
 
     private var candidatesViewMode by AppPrefs.getInstance().candidates.mode
@@ -74,13 +140,14 @@ class InputDeviceManager(private val onChange: (Boolean) -> Unit) {
      * @return should use virtual keyboard
      */
     fun evaluateOnStartInputView(info: EditorInfo, service: FcitxInputMethodService): Boolean {
-        startedInputView = true
         isNullInputType = info.isTypeNull()
+        refreshPhysicalKeyboard()
         isVirtualKeyboard = when (candidatesViewMode) {
-            FloatingCandidatesMode.SystemDefault -> service.superEvaluateInputViewShown()
-            FloatingCandidatesMode.InputDevice -> isVirtualKeyboard
+            FloatingCandidatesMode.SystemDefault -> !hasPhysicalKeyboard && service.superEvaluateInputViewShown()
+            FloatingCandidatesMode.InputDevice -> !hasPhysicalKeyboard
             FloatingCandidatesMode.Disabled -> true
         }
+        startedInputView = true
         return isVirtualKeyboard
     }
 
@@ -109,7 +176,7 @@ class InputDeviceManager(private val onChange: (Boolean) -> Unit) {
 
     private fun evaluateOnKeyDownInner(service: FcitxInputMethodService) {
         isVirtualKeyboard = when (candidatesViewMode) {
-            FloatingCandidatesMode.SystemDefault -> service.superEvaluateInputViewShown()
+            FloatingCandidatesMode.SystemDefault -> !hasPhysicalKeyboard && service.superEvaluateInputViewShown()
             FloatingCandidatesMode.InputDevice -> false
             FloatingCandidatesMode.Disabled -> true
         }
@@ -118,18 +185,25 @@ class InputDeviceManager(private val onChange: (Boolean) -> Unit) {
     fun evaluateOnViewClicked(service: FcitxInputMethodService) {
         if (!startedInputView) return
         isVirtualKeyboard = when (candidatesViewMode) {
-            FloatingCandidatesMode.SystemDefault -> service.superEvaluateInputViewShown()
-            else -> true
+            FloatingCandidatesMode.SystemDefault -> !hasPhysicalKeyboard && service.superEvaluateInputViewShown()
+            FloatingCandidatesMode.InputDevice -> !hasPhysicalKeyboard
+            FloatingCandidatesMode.Disabled -> true
         }
     }
 
     fun evaluateOnUpdateEditorToolType(toolType: Int, service: FcitxInputMethodService) {
         if (!startedInputView) return
         isVirtualKeyboard = when (candidatesViewMode) {
-            FloatingCandidatesMode.SystemDefault -> service.superEvaluateInputViewShown()
+            FloatingCandidatesMode.SystemDefault -> !hasPhysicalKeyboard && service.superEvaluateInputViewShown()
             FloatingCandidatesMode.InputDevice ->
-                // switch to virtual keyboard on touch screen events, otherwise preserve current mode
-                if (toolType == MotionEvent.TOOL_TYPE_FINGER || toolType == MotionEvent.TOOL_TYPE_STYLUS) true else isVirtualKeyboard
+                // switch to virtual keyboard on touch screen events only when no physical keyboard is enabled
+                if (hasPhysicalKeyboard) {
+                    false
+                } else if (toolType == MotionEvent.TOOL_TYPE_FINGER || toolType == MotionEvent.TOOL_TYPE_STYLUS) {
+                    true
+                } else {
+                    isVirtualKeyboard
+                }
             FloatingCandidatesMode.Disabled -> true
         }
     }

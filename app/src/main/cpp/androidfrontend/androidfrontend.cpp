@@ -495,6 +495,7 @@ void AndroidFrontend::showToast(const std::string &s) {
 
 void AndroidFrontend::setCandidatePagingMode(const int mode) {
     pagingMode_ = mode;
+    if (!activeIC_) return;
     if (mode == 0) {
         activeIC_->updateCandidatesBulk();
     } else {

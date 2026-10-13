@@ -103,15 +103,26 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
     private var candidatesView: CandidatesView? = null
 
     private val navbarMgr = NavigationBarManager()
-    private val inputDeviceMgr = InputDeviceManager { isVirtualKeyboard ->
+    private val inputDeviceMgr: InputDeviceManager = InputDeviceManager { isVirtualKeyboard ->
         postFcitxJob {
             setCandidatePagingMode(if (isVirtualKeyboard) 0 else 1)
         }
-        currentInputConnection?.monitorCursorAnchor(!isVirtualKeyboard)
-        if (isVirtualKeyboard) {
-            hideStatusIcon()
-        } else {
-            showStatusIcon(StatusIconMapping.fromEntry(fcitx.runImmediately { inputMethodEntryCached }))
+        if (inputDeviceMgr.startedInputView) {
+            if (isVirtualKeyboard) {
+                currentInputConnection?.monitorCursorAnchor(false)
+                hideStatusIcon()
+                currentInputEditorInfo?.let {
+                    inputView?.startInput(it, capabilityFlags)
+                }
+            } else {
+                if (currentInputConnection?.monitorCursorAnchor(true) != true) {
+                    if (!decorLocationUpdated) {
+                        updateDecorLocation()
+                    }
+                    candidatesView?.updateCursorAnchor(contentSize)
+                }
+                showStatusIcon(StatusIconMapping.fromEntry(fcitx.runImmediately { inputMethodEntryCached }))
+            }
         }
         window.window?.let {
             navbarMgr.evaluate(it, isVirtualKeyboard)
@@ -227,6 +238,7 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
         decorView = window.window!!.decorView
         contentView = decorView.findViewById(android.R.id.content)
         lastKnownConfig = resources.configuration
+        inputDeviceMgr.registerInputDeviceListener(this)
     }
 
     private fun handleFcitxEvent(event: FcitxEvent<*>) {
@@ -546,6 +558,7 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
          */
         val f = ActivityInfo.CONFIG_KEYBOARD or
                 ActivityInfo.CONFIG_KEYBOARD_HIDDEN or
+                ActivityInfo.CONFIG_NAVIGATION or
                 ActivityInfo.CONFIG_UI_MODE
         val diff = lastKnownConfig.diff(newConfig)
         Timber.d("onConfigurationChanged diff=$diff")
@@ -1084,6 +1097,7 @@ class FcitxInputMethodService : LifecycleInputMethodService() {
     }
 
     override fun onDestroy() {
+        inputDeviceMgr.unregisterInputDeviceListener()
         recreateInputViewPrefs.forEach {
             it.unregisterOnChangeListener(recreateInputViewListener)
         }

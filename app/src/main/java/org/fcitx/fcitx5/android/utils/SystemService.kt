@@ -7,6 +7,7 @@ package org.fcitx.fcitx5.android.utils
 import android.app.NotificationManager
 import android.content.ClipboardManager
 import android.content.Context
+import android.hardware.input.InputManager
 import android.media.AudioManager
 import android.os.UserManager
 import android.os.Vibrator
@@ -20,6 +21,9 @@ val Context.audioManager
 
 val Context.clipboardManager
     get() = getSystemService<ClipboardManager>()!!
+
+val Context.inputManager
+    get() = getSystemService<InputManager>()!!
 
 val Context.inputMethodManager
     get() = getSystemService<InputMethodManager>()!!
