@@ -29,9 +29,14 @@ object StatusIconMapping {
                 "ｱ" -> return R.drawable.ic_status_katakana_half
                 "Ａ" -> return R.drawable.ic_status_latin_wide
                 "A" -> return R.drawable.ic_status_latin_direct
+                "嘸" -> return R.drawable.ic_status_boshiamy
+                "簡" -> return R.drawable.ic_status_boshiamy_simp
+                "台" -> return R.drawable.ic_status_boshiamy_ct
+                "日" -> return R.drawable.ic_status_boshiamy_ja
             }
         }
         when (entry.icon) {
+            "fcitx-boshiamy" -> return R.drawable.ic_status_boshiamy
             "fcitx-pinyin" -> return R.drawable.ic_status_pinyin
             "fcitx-shuangpin" -> return R.drawable.ic_status_shuangpin
             "fcitx-wubi", "fcitx-wbpy" -> return R.drawable.ic_status_wubi
